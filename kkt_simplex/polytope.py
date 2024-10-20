@@ -71,6 +71,8 @@ def project_simplex_with_bounds(
     floor, ceiling = _validate_bounds(floor, ceiling)
     n = x.size
     upper = effective_ceiling(n, ceiling)
+    if x.min() >= floor - _TOL and x.max() <= upper + _TOL and abs(x.sum() - 1.0) <= _TOL:
+        return x.copy()
     breaks = np.unique(np.concatenate((x - upper, x - floor)))
     sums = np.clip(x[None, :] - breaks[:, None], floor, upper).sum(axis=1)
     crossed = np.nonzero(sums <= 1.0 + _TOL)[0]
@@ -84,8 +86,15 @@ def project_simplex_with_bounds(
         capped = delta > upper
         floored = delta < floor
         m = int(free.sum())
-        if m == 0:
-            theta = mid
-        else:
-            theta = (float(x[free].sum()) + upper * int(capped.sum()) + floor * int(floored.sum()) - 1.0) / m
+        theta = mid if m == 0 else (float(x[free].sum()) + upper * int(capped.sum()) + floor * int(floored.sum()) - 1.0) / m
     return np.clip(x - theta, floor, upper)
+
+
+def assert_simplex_invariants(w: np.ndarray, n: int, floor: float = 0.1, ceiling: float = 0.9, tol: float = 1e-9) -> None:
+    """Formal verification of all mathematical simplex invariants."""
+    upper = effective_ceiling(n, ceiling)
+    assert w.shape == (n,), f"Expected shape ({n},), got {w.shape}"
+    assert np.all(np.isfinite(w)), f"Found non-finite values in {w}"
+    assert w.min() >= floor - tol, f"Floor invariant violated: min={w.min()} < floor={floor}"
+    assert w.max() <= upper + tol, f"Ceiling invariant violated: max={w.max()} > upper={upper}"
+    assert abs(w.sum() - 1.0) <= tol, f"Sum invariant violated: sum={w.sum()} != 1.0"
