@@ -59,3 +59,33 @@ def _validate_bounds(floor: float, ceiling: float) -> tuple[float, float]:
     return floor, ceiling
 
 
+
+
+def project_simplex_with_bounds(
+    scores: np.ndarray,
+    floor: float = 0.1,
+    ceiling: float = 0.9,
+) -> np.ndarray:
+    """Project scores onto the bounded probability simplex."""
+    x = _validate_vector("scores", scores)
+    floor, ceiling = _validate_bounds(floor, ceiling)
+    n = x.size
+    upper = effective_ceiling(n, ceiling)
+    breaks = np.unique(np.concatenate((x - upper, x - floor)))
+    sums = np.clip(x[None, :] - breaks[:, None], floor, upper).sum(axis=1)
+    crossed = np.nonzero(sums <= 1.0 + _TOL)[0]
+    j = int(crossed[0]) if crossed.size else int(breaks.size - 1)
+    if j == 0:
+        theta = float(breaks[0])
+    else:
+        mid = 0.5 * float(breaks[j - 1] + breaks[j])
+        delta = x - mid
+        free = (delta >= floor) & (delta <= upper)
+        capped = delta > upper
+        floored = delta < floor
+        m = int(free.sum())
+        if m == 0:
+            theta = mid
+        else:
+            theta = (float(x[free].sum()) + upper * int(capped.sum()) + floor * int(floored.sum()) - 1.0) / m
+    return np.clip(x - theta, floor, upper)
