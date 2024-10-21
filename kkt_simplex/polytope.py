@@ -79,11 +79,29 @@ def project_simplex_with_bounds(
     floor, ceiling = _validate_bounds(floor, ceiling)
     n = x.size
 
+    # Invariant: N=1 is strictly [1.0]
+    if n == 1:
+        return np.array([1.0], dtype=np.float64)
+
+    if n * floor > 1.0:
+        raise ValueError(
+            f"Infeasible polytope: {n} dimensions * floor {floor} = {n * floor} > 1.0. "
+            f"Requires floor <= 1/{n} = {1.0 / n:.6g}"
+        )
 
     upper = effective_ceiling(n, ceiling)
-    if x.min() >= floor - _TOL and x.max() <= upper + _TOL and abs(x.sum() - 1.0) <= _TOL:
+
+    # Fast path: exact identity for already-feasible inputs (avoids round-off drift)
+    if (
+        x.min() >= floor - _TOL
+        and x.max() <= upper + _TOL
+        and abs(x.sum() - 1.0) <= _TOL
+    ):
         return x.copy()
+
+    # Shift-invariance: translate coordinates to origin to prevent catastrophic float64 cancellation
     x_shift = x - float(np.mean(x))
+
     # Exact closed-form water-filling on sorted breakpoints using centered coordinates
     breaks = np.unique(np.concatenate((x_shift - upper, x_shift - floor)))
     # Sums at each candidate breakpoint
