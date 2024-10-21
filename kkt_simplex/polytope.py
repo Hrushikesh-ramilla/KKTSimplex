@@ -59,35 +59,73 @@ def _validate_bounds(floor: float, ceiling: float) -> tuple[float, float]:
     return floor, ceiling
 
 
-
-
 def project_simplex_with_bounds(
     scores: np.ndarray,
     floor: float = 0.1,
     ceiling: float = 0.9,
 ) -> np.ndarray:
-    """Project scores onto the bounded probability simplex."""
+    """
+    Project scores onto the bounded probability simplex:
+        { w in R^N : floor <= w_i <= effective_ceiling, sum(w) = 1 }.
+
+    Guarantees:
+      - min_i w_i >= floor - 1e-9
+      - max_i w_i <= effective_ceiling + 1e-9
+      - |sum_i w_i - 1.0| <= 1e-9
+      - Identity guarantee: If input is already feasible, returns an exact copy.
+      - N = 1 returns [1.0].
+    """
     x = _validate_vector("scores", scores)
     floor, ceiling = _validate_bounds(floor, ceiling)
     n = x.size
+
+
     upper = effective_ceiling(n, ceiling)
     if x.min() >= floor - _TOL and x.max() <= upper + _TOL and abs(x.sum() - 1.0) <= _TOL:
         return x.copy()
-    breaks = np.unique(np.concatenate((x - upper, x - floor)))
-    sums = np.clip(x[None, :] - breaks[:, None], floor, upper).sum(axis=1)
+    x_shift = x - float(np.mean(x))
+    # Exact closed-form water-filling on sorted breakpoints using centered coordinates
+    breaks = np.unique(np.concatenate((x_shift - upper, x_shift - floor)))
+    # Sums at each candidate breakpoint
+    sums = np.clip(x_shift[None, :] - breaks[:, None], floor, upper).sum(axis=1)
+
+    # Locate crossing where sums <= 1.0
     crossed = np.nonzero(sums <= 1.0 + _TOL)[0]
     j = int(crossed[0]) if crossed.size else int(breaks.size - 1)
+
     if j == 0:
         theta = float(breaks[0])
     else:
+        # In segment [j-1, j], identify active set (free, capped, floored)
         mid = 0.5 * float(breaks[j - 1] + breaks[j])
-        delta = x - mid
+        delta = x_shift - mid
         free = (delta >= floor) & (delta <= upper)
         capped = delta > upper
         floored = delta < floor
         m = int(free.sum())
-        theta = mid if m == 0 else (float(x[free].sum()) + upper * int(capped.sum()) + floor * int(floored.sum()) - 1.0) / m
-    return np.clip(x - theta, floor, upper)
+
+        if m == 0:
+            theta = mid
+        else:
+            # Closed-form root for theta: sum(x_free - theta) + upper * |capped| + floor * |floored| = 1.0
+            theta = (
+                float(x_shift[free].sum())
+                + upper * int(capped.sum())
+                + floor * int(floored.sum())
+                - 1.0
+            ) / m
+
+    w = np.clip(x_shift - theta, floor, upper)
+
+    # Distribute any float64 precision residual across unconstrained coordinates
+    residual = 1.0 - float(w.sum())
+    if abs(residual) > _TOL:
+        free_coords = (w > floor) & (w < upper)
+        if free_coords.any():
+            w[free_coords] += residual / float(free_coords.sum())
+            w = np.clip(w, floor, upper)
+
+    return w
 
 
 def assert_simplex_invariants(w: np.ndarray, n: int, floor: float = 0.1, ceiling: float = 0.9, tol: float = 1e-9) -> None:
