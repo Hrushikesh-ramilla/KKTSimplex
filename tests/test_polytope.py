@@ -44,3 +44,33 @@ def test_closed_form_matches_bisection_reference() -> None:
         ours = project_simplex_with_bounds(x, floor=0.1, ceiling=0.8)
         ref = bisection_reference(x, floor=0.1, ceiling=0.8)
         assert np.allclose(ours, ref, atol=1e-9, rtol=0), f"Mismatch: ours={ours}, ref={ref}"
+
+
+def test_projection_idempotence() -> None:
+    rng = np.random.default_rng(999)
+    for _ in range(500):
+        x = rng.normal(0.0, 10.0, 3)
+        w1 = project_simplex_with_bounds(x, floor=0.1, ceiling=0.9)
+        w2 = project_simplex_with_bounds(w1, floor=0.1, ceiling=0.9)
+        assert np.allclose(w1, w2, atol=1e-12, rtol=0)
+
+
+def test_exact_identity_on_feasible_vector() -> None:
+    feasible = np.array([0.7, 0.15, 0.15])
+    w = project_simplex_with_bounds(feasible, floor=0.1, ceiling=0.9)
+    assert np.allclose(feasible, w, atol=1e-14, rtol=0)
+
+
+def test_infeasible_floor_raises() -> None:
+    with pytest.raises(ValueError, match="Infeasible polytope"):
+        # 3 dimensions * 0.4 = 1.2 > 1.0
+        project_simplex_with_bounds(np.ones(3), floor=0.4)
+
+
+def test_invalid_bounds_raise() -> None:
+    with pytest.raises(ValueError):
+        project_simplex_with_bounds(np.ones(3), floor=-0.1)
+    with pytest.raises(ValueError):
+        project_simplex_with_bounds(np.ones(3), floor=0.8, ceiling=0.2)
+    with pytest.raises(ValueError):
+        project_simplex_with_bounds(np.array([np.nan, 1.0]))
