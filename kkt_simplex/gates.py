@@ -31,6 +31,19 @@ from typing import Sequence
 __all__ = ["GateVerdict", "GateExecutionResult", "run_gate_command", "evaluate_gate_diff"]
 
 
+def _parse_command_args(command: Sequence[str] | str) -> list[str]:
+    """Tokenize a command securely across platforms without shell execution or backslash corruption."""
+    if not isinstance(command, str):
+        return list(command)
+    if sys.platform == "win32":
+        raw_args = shlex.split(command, posix=False)
+        return [
+            a[1:-1] if (len(a) >= 2 and a[0] == a[-1] and a[0] in ('"', "'")) else a
+            for a in raw_args
+        ]
+    return shlex.split(command, posix=True)
+
+
 class GateVerdict(str, enum.Enum):
     PASS = "PASS"
     FAIL_INTRODUCED_BY_DIFF = "FAIL_INTRODUCED_BY_DIFF"
@@ -58,29 +71,31 @@ _NON_INTERACTIVE_ENV = {
 }
 
 
-
 def run_gate_command(
     command: Sequence[str] | str,
     cwd: str | None = None,
     timeout_seconds: int = 30,
 ) -> GateExecutionResult:
-    """Run a deterministic command in a bounded environment."""
+    """Run a deterministic command in a non-interactive, bounded environment."""
     env = dict(os.environ)
     env.update(_NON_INTERACTIVE_ENV)
-    use_shell = isinstance(command, str)
-    cmd_list = command.split() if isinstance(command, str) else list(command)
+
+    cmd_args = _parse_command_args(command)
+
     try:
         proc = subprocess.run(
-            command if use_shell else cmd_list,
+            cmd_args,
             cwd=cwd,
             env=env,
-            shell=use_shell,
+            shell=False,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout_seconds,
         )
+
         return GateExecutionResult(
-            command=cmd_list,
+            command=cmd_args,
             returncode=proc.returncode,
             stdout=proc.stdout or "",
             stderr=proc.stderr or "",
@@ -89,11 +104,20 @@ def run_gate_command(
         )
     except subprocess.TimeoutExpired as exc:
         return GateExecutionResult(
-            command=cmd_list,
+            command=cmd_args,
             returncode=-1,
             stdout=str(exc.stdout or ""),
             stderr=str(exc.stderr or "") + f"\nCommand timed out after {timeout_seconds} seconds",
             timed_out=True,
+            is_success=False,
+        )
+    except Exception as exc:
+        return GateExecutionResult(
+            command=cmd_args,
+            returncode=-2,
+            stdout="",
+            stderr=str(exc),
+            timed_out=False,
             is_success=False,
         )
 
