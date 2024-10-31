@@ -31,6 +31,14 @@ from typing import Sequence
 __all__ = ["GateVerdict", "GateExecutionResult", "run_gate_command", "evaluate_gate_diff"]
 
 
+def _decode_output(val: str | bytes | None) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="replace")
+    return str(val)
+
+
 def _parse_command_args(command: Sequence[str] | str) -> list[str]:
     """Tokenize a command securely across platforms without shell execution or backslash corruption."""
     if not isinstance(command, str):
@@ -93,21 +101,22 @@ def run_gate_command(
             errors="replace",
             timeout=timeout_seconds,
         )
-
         return GateExecutionResult(
             command=cmd_args,
             returncode=proc.returncode,
-            stdout=proc.stdout or "",
-            stderr=proc.stderr or "",
+            stdout=_decode_output(proc.stdout),
+            stderr=_decode_output(proc.stderr),
             timed_out=False,
             is_success=(proc.returncode == 0),
         )
     except subprocess.TimeoutExpired as exc:
+        stdout = _decode_output(exc.stdout)
+        stderr = _decode_output(exc.stderr)
         return GateExecutionResult(
             command=cmd_args,
             returncode=-1,
-            stdout=str(exc.stdout or ""),
-            stderr=str(exc.stderr or "") + f"\nCommand timed out after {timeout_seconds} seconds",
+            stdout=stdout,
+            stderr=stderr + f"\nCommand timed out after {timeout_seconds} seconds",
             timed_out=True,
             is_success=False,
         )
