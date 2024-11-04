@@ -68,3 +68,84 @@ class GovernanceDecision:
     contamination_scope: ContaminationScope = ContaminationScope.NONE
     needs_review: bool = False
 
+
+def evaluate_task_completion(
+    gate_verdict: GateVerdict,
+    epistemic_trust: float,
+    spec_violations: int = 0,
+    *,
+    min_trust_threshold: float = 0.70,
+    marginal_trust_threshold: float = 0.40,
+) -> GovernanceDecision:
+    """
+    Enforce hard mathematical invariants on task completion.
+
+    Invariants:
+      DONE is only granted if gate_verdict == PASS AND epistemic_trust >= min_trust_threshold
+      AND spec_violations == 0.
+      If a diff introduced a regression, REVERT_AND_PARK is mandatory.
+    """
+
+    if spec_violations > 0:
+        return GovernanceDecision(
+            action=Action.REVERT_AND_PARK,
+            outcome=OutcomeState.PARKED,
+            reason=f"Task violated {spec_violations} immutable spec invariants (goal drift).",
+            contamination_scope=ContaminationScope.MODULE,
+            needs_review=True,
+        )
+
+    if gate_verdict == GateVerdict.FAIL_INTRODUCED_BY_DIFF:
+        return GovernanceDecision(
+            action=Action.REVERT_AND_PARK,
+            outcome=OutcomeState.PARKED,
+            reason="Regression detected: Diff broke tests that passed on baseline.",
+            contamination_scope=ContaminationScope.FILE,
+            needs_review=True,
+        )
+
+    if gate_verdict == GateVerdict.FAIL_PREEXISTING:
+        return GovernanceDecision(
+            action=Action.PARK,
+            outcome=OutcomeState.PARKED,
+            reason="Pre-existing test failure detected. Requires explicit human intervention.",
+            contamination_scope=ContaminationScope.MODULE,
+            needs_review=True,
+        )
+
+    if gate_verdict == GateVerdict.FAIL_ENV:
+        return GovernanceDecision(
+            action=Action.HALT,
+            outcome=OutcomeState.HALTED,
+            reason="Environment error or execution timeout encountered.",
+            contamination_scope=ContaminationScope.SERVICE,
+            needs_review=True,
+        )
+
+
+    # Gate is PASS: Evaluate epistemic calibration
+    if epistemic_trust >= min_trust_threshold:
+        return GovernanceDecision(
+            action=Action.PROCEED,
+            outcome=OutcomeState.DONE,
+            reason=f"Deterministic tests passed and trust calibrated at {epistemic_trust:.3f} >= {min_trust_threshold}.",
+            contamination_scope=ContaminationScope.NONE,
+            needs_review=False,
+        )
+    elif epistemic_trust >= marginal_trust_threshold:
+        return GovernanceDecision(
+            action=Action.PROCEED,
+            outcome=OutcomeState.DONE_LOW_CONFIDENCE,
+            reason=f"Deterministic tests passed, but trust is marginal ({epistemic_trust:.3f}). Tagged for daylight review.",
+            contamination_scope=ContaminationScope.FILE,
+            needs_review=True,
+        )
+    else:
+        return GovernanceDecision(
+            action=Action.PARK,
+            outcome=OutcomeState.PARKED,
+            reason=f"Trust too low ({epistemic_trust:.3f} < {marginal_trust_threshold}). Parking step to prevent hallucinated completion.",
+            contamination_scope=ContaminationScope.MODULE,
+            needs_review=True,
+        )
+
