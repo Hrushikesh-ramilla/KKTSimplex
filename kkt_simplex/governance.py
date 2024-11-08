@@ -85,6 +85,13 @@ def evaluate_task_completion(
       AND spec_violations == 0.
       If a diff introduced a regression, REVERT_AND_PARK is mandatory.
     """
+    # Strict validation of inputs
+    if not isinstance(spec_violations, int) or spec_violations < 0:
+        raise ValueError(f"spec_violations must be a non-negative integer, got {spec_violations}")
+
+    import math
+    if not (isinstance(epistemic_trust, (int, float)) and math.isfinite(epistemic_trust) and 0.0 <= epistemic_trust <= 1.0):
+        raise ValueError(f"epistemic_trust must be a finite float in [0.0, 1.0], got {epistemic_trust}")
 
     if spec_violations > 0:
         return GovernanceDecision(
@@ -122,6 +129,8 @@ def evaluate_task_completion(
             needs_review=True,
         )
 
+    if gate_verdict != GateVerdict.PASS:
+        raise ValueError(f"Invalid or unrecognized GateVerdict: {gate_verdict}")
 
     # Gate is PASS: Evaluate epistemic calibration
     if epistemic_trust >= min_trust_threshold:
