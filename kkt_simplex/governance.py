@@ -158,3 +158,26 @@ def evaluate_task_completion(
             needs_review=True,
         )
 
+
+def revert_git_diff(cwd: str | None = None) -> bool:
+    """
+    Atomically revert uncommitted and staged working tree changes using git reset/clean.
+    """
+    try:
+        # Reset any staged changes (HEAD rollback)
+        subprocess.run(
+            ["git", "reset", "--hard", "HEAD"],
+            cwd=cwd,
+            capture_output=True,
+            check=True,
+        )
+        # Clean any untracked or ignored artifacts
+        subprocess.run(
+            ["git", "clean", "-fdx"],
+            cwd=cwd,
+            capture_output=True,
+            check=True,
+        )
+        return True
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
