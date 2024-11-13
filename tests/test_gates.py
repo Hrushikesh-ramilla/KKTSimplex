@@ -45,3 +45,33 @@ def test_gate_differential_evaluation() -> None:
     # Baseline FAIL, Post FAIL -> FAIL_PREEXISTING
     assert evaluate_gate_diff(fail_res, fail_res) == GateVerdict.FAIL_PREEXISTING
 
+
+def test_governance_blocks_done_on_test_failure() -> None:
+    decision = evaluate_task_completion(
+        gate_verdict=GateVerdict.FAIL_INTRODUCED_BY_DIFF,
+        epistemic_trust=0.95,  # Even with high trust, gate failure forces revert!
+        spec_violations=0,
+    )
+    assert decision.action == Action.REVERT_AND_PARK
+    assert decision.outcome == OutcomeState.PARKED
+
+
+def test_governance_blocks_done_on_spec_violation() -> None:
+    decision = evaluate_task_completion(
+        gate_verdict=GateVerdict.PASS,
+        epistemic_trust=0.95,
+        spec_violations=1,
+    )
+    assert decision.action == Action.REVERT_AND_PARK
+    assert decision.outcome == OutcomeState.PARKED
+
+
+def test_governance_grants_done_on_verified_pass() -> None:
+    decision = evaluate_task_completion(
+        gate_verdict=GateVerdict.PASS,
+        epistemic_trust=0.88,
+        spec_violations=0,
+    )
+    assert decision.action == Action.PROCEED
+    assert decision.outcome == OutcomeState.DONE
+    assert not decision.needs_review
