@@ -19,6 +19,45 @@ Autonomous multi-phase coding agents systematically break down on complex engine
 
 ---
 
+## 2. Core Architecture
+
+KKTSimplex unifies **convex optimization** (closed-form bounded simplex projection), **differential deterministic execution gates**, and **immutable spec invariant contracts** into a unified runtime:
+
+```
+                            ┌──────────────────────────────────────────────┐
+                            │          Immutable Spec Invariant           │
+                            │           (SpecAnchor Contract)              │
+                            └──────────────────────┬───────────────────────┘
+                                                   │
+                                                   ▼
+                            ┌──────────────────────────────────────────────┐
+                            │        Execution-Guided Tree Search          │
+                            │             (Calibrated MCTS)                │
+                            └──────────────────────┬───────────────────────┘
+                                                   │
+                                                   ▼
+                            ┌──────────────────────────────────────────────┐
+                            │         Deterministic Execution Gate         │
+                            │        (Baseline vs Post-Diff Shell)         │
+                            │     PASS | FAIL_INTRODUCED_BY_DIFF | ENV     │
+                            └──────────────────────┬───────────────────────┘
+                                                   │
+                                                   ▼
+                            ┌──────────────────────────────────────────────┐
+                            │        Convex Epistemic Trust Engine         │
+                            │     (Water-Filling Simplex Projection)       │
+                            │        w ∈ [floor, ceiling], ∑w = 1          │
+                            └──────────────────────┬───────────────────────┘
+                                                   │
+                         ┌─────────────────────────┴─────────────────────────┐
+                         ▼                                                   ▼
+            [Verified PASS: w >= 0.70]                          [Regression or Broken Test]
+                Status: DONE                                      Status: REVERT_AND_PARK
+       (Rejects Hostile Capitulation)                       (Atomic Git Rollback Triggered)
+```
+
+---
+
 ## 3. Mathematical Foundations
 
 ### Bounded Simplex Projection with Box Constraints
