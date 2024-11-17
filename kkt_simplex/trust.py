@@ -59,6 +59,17 @@ def update_trust(
 
     if s.ndim != 1 or v.ndim != 1 or h.ndim != 1 or s.size != v.size or s.size != h.size:
         raise ValueError("scores, support, and harm must be 1-D vectors of matching lengths")
+    if (s < 0).any() or (v < 0).any() or (h < 0).any():
+        raise ValueError("scores, support, and harm must be non-negative")
+    if not (np.isfinite(s).all() and np.isfinite(v).all() and np.isfinite(h).all()):
+        raise ValueError("scores, support, and harm must contain only finite numbers (no NaN or Inf)")
+
+    # Fast neutral check: If no evidence arrived and input is feasible, return unchanged
+    if (v == 0).all() and (h == 0).all():
+        n = s.size
+        upper = max(ceiling, 1.0 / n)
+        if (s.min() >= floor - 1e-12) and (s.max() <= upper + 1e-12) and (abs(s.sum() - 1.0) <= 1e-12):
+            return s.copy()
 
     logits = np.log(np.maximum(s, _TINY))
 
