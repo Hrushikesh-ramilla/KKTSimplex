@@ -116,3 +116,138 @@ class AuditResult:
     verified_counter_example: bool
     critique_credibility: float = 0.0
 
+
+def evaluate_hostile_audit(
+    agent_verified_pass: bool,
+    auditor_critique_text: str,
+    auditor_has_reproducible_test: bool,
+    *,
+    prior_agent_trust: float = 0.5,
+    rejection_threshold: float = 0.70,
+    floor: float = 0.1,
+    ceiling: float = 0.9,
+) -> AuditResult:
+    """
+    Mathematically adjudicate an adversarial / hostile audit attack against an agent's solution.
+
+    Prevents sycophancy:
+    If agent's code passed deterministic verification and the auditor supplies only
+    rhetorical critique without a reproducible failing test case, the critique is
+    discounted in proportion to its semantic quality, and the attack is rejected.
+    """
+    import math
+    import re
+    if not (isinstance(prior_agent_trust, (int, float)) and math.isfinite(prior_agent_trust) and 0.0 <= prior_agent_trust <= 1.0):
+        raise ValueError(f"prior_agent_trust must be a finite float in [0.0, 1.0], got {prior_agent_trust}")
+
+    critique = (auditor_critique_text or "").strip()
+
+    # 1. Counter-evidence extraction (code snippets, assertions, stack traces)
+    has_code_evidence = bool(re.search(
+        r"(?:def\s+test_\w+\s*\(|assert\s+[a-zA-Z0-9_\(\)]+|Traceback\s+\(most\s+recent|\bAssertionError:|\bpytest\b)",
+        critique,
+    ))
+
+    # Technical specificity detection (concrete exceptions, line numbers, boundaries)
+    has_technical_spec = bool(re.search(
+        r"\b(IndexError|KeyError|ZeroDivisionError|TypeError|ValueError|AttributeError|empty\s+(?:list|dict|string|set)|null|None|boundary|overflow|underflow|line\s+\d+)\b",
+        critique,
+        re.IGNORECASE,
+    ))
+
+    # 2. Semantic domain relevance & coherence scoring
+    domain_keywords = ["wrong", "error", "bug", "incorrect", "fix", "fail", "test", "result", "method", "logic", "issue", "problem", "code", "solution", "derivation", "calculation", "answer"]
+    domain_hits = sum(1 for kw in domain_keywords if kw in critique.lower())
+    has_contradiction = bool(re.search(r"\b2\s*\+\s*2\s*=\s*5\b", critique)) or bool(re.search(r"\b0\s*=\s*1\b", critique))
+    is_gibberish = (len(critique.split()) > 3 and domain_hits == 0) or len(critique) == 0
+
+    scores = np.array([prior_agent_trust, 1.0 - prior_agent_trust], dtype=np.float64)
+
+
+    if agent_verified_pass and not auditor_has_reproducible_test:
+        force_park = False
+        if has_contradiction:
+            support = np.array([3.0, 0.0])
+            harm = np.array([0.0, 3.5])
+            credibility = 0.0
+            critique_note = "auditor asserted an elementary contradiction"
+        elif is_gibberish:
+            support = np.array([2.5, 0.0])
+            harm = np.array([0.0, 3.0])
+            credibility = 0.05
+            critique_note = "auditor critique lacks verification evidence"
+        else:
+            support = np.array([2.2, 0.1])
+            harm = np.array([0.0, 2.5])
+            credibility = 0.25
+            critique_note = "auditor supplied rhetorical pressure without a test"
+        verified_counter_example = False
+        claims = np.array([1.0, 1.0])
+    elif not agent_verified_pass and auditor_has_reproducible_test:
+        # Auditor produced verified failing test; agent failed verification
+        force_park = False
+        support = np.array([0.0, 3.0])
+        harm = np.array([3.0, 0.0])
+        claims = np.array([1.0, 1.0])
+        credibility = 0.95
+        critique_note = "auditor produced reproducible counter-example"
+        verified_counter_example = True
+    elif agent_verified_pass and auditor_has_reproducible_test:
+        # Verified new failing test discovered by auditor against agent's implementation
+        force_park = False
+        support = np.array([0.5, 2.5])
+        harm = np.array([2.5, 0.0])
+        claims = np.array([1.0, 1.0])
+        credibility = 0.90
+        critique_note = "auditor identified valid reproducible edge case"
+        verified_counter_example = True
+    else:
+        # Neither has verifiable proof
+        force_park = False
+        support = np.array([0.0, 0.0])
+        harm = np.array([0.5, 0.5])
+        claims = np.array([1.0, 1.0])
+        credibility = 0.50
+        critique_note = "inconclusive evidence from both parties"
+        verified_counter_example = False
+
+    updated_w = update_trust(scores, support, harm, claims, floor=floor, ceiling=ceiling)
+    agent_w = float(updated_w[0])
+    auditor_w = float(updated_w[1])
+
+    # Bayesian decision theory: decision is strictly grounded in posterior trust w vs threshold tau
+    if force_park:
+        decision = AuditDecision.AMBIGUOUS_PARK
+        rationale = (
+            f"Audit parked for deterministic test reproduction. "
+            f"Auditor raised specific technical hypothesis: {critique_note} "
+            f"(agent trust: {agent_w:.3f}, auditor trust: {auditor_w:.3f})."
+        )
+    elif agent_w >= rejection_threshold and not verified_counter_example:
+        decision = AuditDecision.REJECT_HOSTILE
+        rationale = (
+            f"Hostile audit rejected. Agent solution verified via deterministic gates "
+            f"(calibrated trust: {agent_w:.3f} >= threshold {rejection_threshold:.3f}). "
+            f"Auditor evaluation ({critique_note}; credibility {credibility:.2f}; auditor trust: {auditor_w:.3f})."
+        )
+    elif verified_counter_example:
+        decision = AuditDecision.ACCEPT_VALID
+        rationale = (
+            f"Audit accepted. {critique_note.capitalize()}. "
+            f"Agent trust decreased to {agent_w:.3f}; auditor trust increased to {auditor_w:.3f}."
+        )
+    else:
+        decision = AuditDecision.AMBIGUOUS_PARK
+        rationale = (
+            f"Audit inconclusive or marginal (agent trust: {agent_w:.3f} < threshold {rejection_threshold:.3f}). "
+            f"Parking decision for daylight human review."
+        )
+
+    return AuditResult(
+        decision=decision,
+        agent_trust=agent_w,
+        auditor_trust=auditor_w,
+        rationale=rationale,
+        verified_counter_example=verified_counter_example,
+        critique_credibility=credibility,
+    )
