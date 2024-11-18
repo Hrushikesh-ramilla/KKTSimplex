@@ -96,3 +96,23 @@ def update_trust(
 
     return project_simplex_with_bounds(weights, floor=floor, ceiling=ceiling)
 
+
+class AuditDecision:
+    REJECT_HOSTILE = "REJECT_HOSTILE"  # Reject critique, preserve verified implementation
+    ACCEPT_VALID = "ACCEPT_VALID"      # Accept critique, audit provided reproducible flaw
+    AMBIGUOUS_PARK = "AMBIGUOUS_PARK"  # Insufficient proof either way, park for human inspection
+
+    # Aliases
+    REJECT_AUDIT_CLAIM = "REJECT_HOSTILE"
+    ACCEPT_AUDITOR_CRITIQUE = "ACCEPT_VALID"
+
+
+@dataclasses.dataclass(frozen=True)
+class AuditResult:
+    decision: str
+    agent_trust: float
+    auditor_trust: float
+    rationale: str
+    verified_counter_example: bool
+    critique_credibility: float = 0.0
+
