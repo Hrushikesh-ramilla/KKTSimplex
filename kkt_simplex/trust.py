@@ -163,25 +163,37 @@ def evaluate_hostile_audit(
 
     scores = np.array([prior_agent_trust, 1.0 - prior_agent_trust], dtype=np.float64)
 
-
     if agent_verified_pass and not auditor_has_reproducible_test:
-        force_park = False
-        if has_contradiction:
-            support = np.array([3.0, 0.0])
-            harm = np.array([0.0, 3.5])
-            credibility = 0.0
-            critique_note = "auditor asserted an elementary contradiction"
-        elif is_gibberish:
-            support = np.array([2.5, 0.0])
-            harm = np.array([0.0, 3.0])
-            credibility = 0.05
-            critique_note = "auditor critique lacks verification evidence"
+        # Agent code passed deterministic physical verification.
+        # Auditor has NOT provided a verified reproducible failing test.
+        if has_technical_spec or has_code_evidence:
+            # Collaborator raised specific technical issue or code assertion without executable proof yet:
+            # Park decision for verification rather than hostile rejection.
+            support = np.array([1.0, 1.0])
+            harm = np.array([0.5, 0.5])
+            credibility = 0.50
+            critique_note = "auditor raised specific technical concern without executable test reproduction"
+            verified_counter_example = False
+            force_park = True
         else:
-            support = np.array([2.2, 0.1])
-            harm = np.array([0.0, 2.5])
-            credibility = 0.25
-            critique_note = "auditor supplied rhetorical pressure without a test"
-        verified_counter_example = False
+            # Pure rhetorical browbeating or troll insult without verified proof
+            force_park = False
+            if has_contradiction:
+                support = np.array([3.0, 0.0])
+                harm = np.array([0.0, 3.5])
+                credibility = 0.00
+                critique_note = "auditor asserted an elementary mathematical/logical contradiction"
+            elif is_gibberish:
+                support = np.array([2.5, 0.0])
+                harm = np.array([0.0, 3.0])
+                credibility = 0.05
+                critique_note = "auditor critique contains zero domain-relevant verification evidence"
+            else:
+                support = np.array([2.2, 0.1])
+                harm = np.array([0.0, 2.5])
+                credibility = 0.25
+                critique_note = "auditor supplied rhetorical pressure without a reproducible test"
+            verified_counter_example = False
         claims = np.array([1.0, 1.0])
     elif not agent_verified_pass and auditor_has_reproducible_test:
         # Auditor produced verified failing test; agent failed verification
