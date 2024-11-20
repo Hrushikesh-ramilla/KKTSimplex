@@ -3,6 +3,7 @@ KKTSimplex: Verifiable Epistemic Calibration & Autonomous Execution Governance.
 """
 
 from .polytope import project_simplex_with_bounds, effective_ceiling, assert_simplex_invariants
+from .trust import update_trust, evaluate_hostile_audit, AuditDecision, AuditResult
 from .gates import GateVerdict, GateExecutionResult, run_gate_command, evaluate_gate_diff
 from .governance import (
     Action, OutcomeState, ContaminationScope, GovernanceDecision,
