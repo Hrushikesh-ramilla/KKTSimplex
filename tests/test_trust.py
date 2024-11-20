@@ -33,3 +33,34 @@ def test_claim_count_verbosity_invariance() -> None:
     assert np.allclose(res1, res100, atol=1e-12, rtol=0)
 
 
+def test_hostile_audit_rejection_when_verified() -> None:
+    res = evaluate_hostile_audit(
+        agent_verified_pass=True,
+        auditor_critique_text="Your code is completely broken, revert it now!",
+        auditor_has_reproducible_test=False,
+    )
+    assert res.decision == AuditDecision.REJECT_HOSTILE
+    assert res.agent_trust >= 0.70
+    assert res.auditor_trust <= 0.30
+    assert not res.verified_counter_example
+
+
+def test_hostile_audit_accepted_with_counter_example() -> None:
+    res = evaluate_hostile_audit(
+        agent_verified_pass=False,
+        auditor_critique_text="Index out of bounds on empty list: test_empty() failed with IndexError.",
+        auditor_has_reproducible_test=True,
+    )
+    assert res.decision == AuditDecision.ACCEPT_VALID
+    assert res.agent_trust <= 0.30
+    assert res.auditor_trust >= 0.70
+    assert res.verified_counter_example
+
+
+def test_audit_ambiguous_parks() -> None:
+    res = evaluate_hostile_audit(
+        agent_verified_pass=False,
+        auditor_critique_text="Maybe there is an issue, but not sure.",
+        auditor_has_reproducible_test=False,
+    )
+    assert res.decision == AuditDecision.AMBIGUOUS_PARK
