@@ -85,3 +85,5 @@ $$\mathbf{w}_{t+1} = \text{Project}_{\mathcal{W}}(\text{softmax}(\mathbf{logit})
 * **Verbosity Invariance:** Scaling support $v_i$, harm $h_i$, and claim counts $n_i$ by factor $k$ produces identical trust weights, neutralizing claim duplication spam.
 
 ---
+
+> Implements Bayesian log-domain trust updates bounded to [floor, ceiling].
