@@ -77,3 +77,19 @@ class DriftCheckResult:
     violations: List[str]
     checked_count: int
 
+
+
+def validate_against_anchor(anchor: SpecAnchor, diff_or_code: str) -> DriftCheckResult:
+    """Validate candidate code against literal forbidden tokens and invariants."""
+    violations: List[str] = []
+    for token in anchor.forbidden_tokens:
+        if token.lower() in diff_or_code.lower():
+            violations.append(f"Forbidden shortcut token detected: '{token}'")
+    for inv in anchor.invariants:
+        if not inv.check(diff_or_code):
+            violations.append(f"Invariant violated: [{inv.name}] - {inv.description}")
+    return DriftCheckResult(
+        passed=(len(violations) == 0),
+        violations=violations,
+        checked_count=len(anchor.invariants) + len(anchor.forbidden_tokens),
+    )
