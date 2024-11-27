@@ -28,6 +28,21 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 __all__ = ["SpecInvariant", "SpecAnchor", "DriftCheckResult", "InvariantViolation", "validate_against_anchor"]
 
+# Robust regex patterns for shortcut and stub detection
+_DEFAULT_FORBIDDEN_PATTERNS = (
+    re.compile(r"#\s*(todo|fixme)\b", re.IGNORECASE),
+    re.compile(r"\bnotimplementederror\b", re.IGNORECASE),
+    re.compile(r"pass\s*#\s*placeholder", re.IGNORECASE),
+    re.compile(r":\s*\.{3}\s*(?:\n|$)", re.IGNORECASE),  # Ellipsis stub body
+    re.compile(r"raise\s+\w+\s*\(\s*['\"][^'\"]*not\s+implemented", re.IGNORECASE),
+)
+
+# Common homoglyph mappings (Cyrillic, Greek, etc. to ASCII)
+_HOMOGLYPH_MAP = str.maketrans({
+    "Т": "T", "т": "t", "О": "O", "о": "o", "Е": "E", "е": "e", "А": "A", "а": "a",
+    "Р": "P", "р": "p", "С": "C", "с": "c", "Х": "X", "х": "x", "В": "B", "М": "M",
+})
+
 
 @dataclasses.dataclass(frozen=True)
 class InvariantViolation:
@@ -78,18 +93,41 @@ class DriftCheckResult:
     checked_count: int
 
 
-
-def validate_against_anchor(anchor: SpecAnchor, diff_or_code: str) -> DriftCheckResult:
-    """Validate candidate code against literal forbidden tokens and invariants."""
+def validate_against_anchor(
+    anchor: SpecAnchor,
+    diff_or_code: str,
+) -> DriftCheckResult:
+    """
+    Validate an agent's candidate code or diff against the frozen SpecAnchor.
+    Includes Unicode homoglyph normalization and regex pattern matching.
+    """
     violations: List[str] = []
+
+    # Normalize Unicode homoglyphs and compatibility forms
+    normalized_code = unicodedata.normalize("NFKD", diff_or_code).translate(_HOMOGLYPH_MAP)
+
+    # 1. Check robust forbidden patterns
+    for pattern in _DEFAULT_FORBIDDEN_PATTERNS:
+        match = pattern.search(normalized_code)
+        if match:
+            violations.append(f"Forbidden shortcut pattern detected: '{match.group(0).strip()}'")
+
+    # Also check user-configured literal forbidden tokens
     for token in anchor.forbidden_tokens:
-        if token.lower() in diff_or_code.lower():
+        if token.lower() in normalized_code.lower():
             violations.append(f"Forbidden shortcut token detected: '{token}'")
+
+    # 2. Check each explicit invariant predicate
     for inv in anchor.invariants:
-        if not inv.check(diff_or_code):
-            violations.append(f"Invariant violated: [{inv.name}] - {inv.description}")
+        try:
+            holds = inv.check(diff_or_code)
+            if not holds:
+                violations.append(f"Invariant violated: [{inv.name}] - {inv.description}")
+        except Exception as exc:
+            violations.append(f"Invariant check failed with error: [{inv.name}] - {exc}")
+
     return DriftCheckResult(
         passed=(len(violations) == 0),
         violations=violations,
-        checked_count=len(anchor.invariants) + len(anchor.forbidden_tokens),
+        checked_count=len(anchor.invariants) + len(anchor.forbidden_tokens) + len(_DEFAULT_FORBIDDEN_PATTERNS),
     )
