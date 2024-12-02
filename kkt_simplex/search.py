@@ -106,13 +106,15 @@ class ExecutionGuidedMCTS:
                 if node.children:
                     node = node.children[0]
                     trajectory.append(node.step_content)
+                else:
+                    # No children generated; mark node terminal to prevent infinite spin
+                    node.is_terminal = True
 
             # 3. Deterministic Evaluation
             gate_verdict, raw_confidence = self.execution_verifier(trajectory)
 
             # Epistemic calibration: Scale Bayesian evidence by execution confidence
-
-            conf = float(raw_confidence) if raw_confidence else 1.0
+            conf = float(raw_confidence) if (isinstance(raw_confidence, (int, float)) and math.isfinite(raw_confidence) and raw_confidence > 0) else 1.0
             if gate_verdict == GateVerdict.PASS:
                 support = np.array([conf, 0.0])
                 harm = np.array([0.0, conf])
@@ -153,7 +155,12 @@ class ExecutionGuidedMCTS:
                 best_path.append(best_child.step_content)
                 curr = best_child
             else:
+                # If even root has no passing children, trajectory is empty
+                if curr is root:
+                    best_path = []
+                    curr = None
                 break
+
         return MCTSSearchResult(
             best_trajectory=best_path,
             best_value=curr.q_value if curr else 0.0,
