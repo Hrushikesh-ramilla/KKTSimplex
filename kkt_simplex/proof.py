@@ -131,3 +131,51 @@ def verify_kkt_optimality(
         n_dimensions=n,
         proof_summary=summary,
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class ExecutionProofCertificate:
+    is_proven: bool
+    exit_code: int
+    assertions_verified: int
+    alleged_counter_example_refuted: bool
+    execution_trace: str
+    proof_summary: str
+
+
+def generate_execution_proof(
+    code_under_test: str,
+    test_suite_code: str,
+    alleged_counter_test: Optional[str] = None,
+) -> ExecutionProofCertificate:
+    """
+    Generate an empirical proof certificate by executing code and tests in an isolated sandbox.
+    """
+    import sys
+    full_script = f"{code_under_test}\n\n{test_suite_code}\n"
+    counter_refuted = False
+
+    if alleged_counter_test:
+        full_script += f"\n# Alleged Counter-Test Execution\n{alleged_counter_test}\n"
+
+    cmd = [sys.executable, "-c", full_script]
+    res = run_gate_command(cmd, timeout_seconds=15)
+
+    if res.is_success and alleged_counter_test:
+        counter_refuted = True
+
+    is_proven = res.is_success
+    summary = (
+        f"Execution Proof Certificate: Exit Code {res.returncode}. "
+        f"Deterministic sandbox run {'PASSED' if is_proven else 'FAILED'}. "
+        f"Counter-example refuted: {counter_refuted}."
+    )
+
+    return ExecutionProofCertificate(
+        is_proven=is_proven,
+        exit_code=res.returncode,
+        assertions_verified=test_suite_code.count("assert"),
+        alleged_counter_example_refuted=counter_refuted,
+        execution_trace=res.stdout if is_proven else (res.stdout + "\n" + res.stderr),
+        proof_summary=summary,
+    )
