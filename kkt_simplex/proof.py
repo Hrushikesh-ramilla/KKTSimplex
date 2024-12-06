@@ -179,3 +179,51 @@ def generate_execution_proof(
         execution_trace=res.stdout if is_proven else (res.stdout + "\n" + res.stderr),
         proof_summary=summary,
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class AuditProofCertificate:
+    adjudication: str
+    agent_trust: float
+    auditor_trust: float
+    posterior_odds_ratio: float
+    kkt_proof: KKTProofCertificate
+    execution_proof: Optional[ExecutionProofCertificate]
+    formal_verdict_statement: str
+    auditors_trust: Optional[List[float]] = None
+
+
+
+def adjudicate_with_proof(
+    agent_code: str,
+    test_suite: str,
+    auditor_critique: str,
+    alleged_failing_test: Optional[str] = None,
+    *,
+    prior_agent_trust: float = 0.5,
+    rejection_threshold: float = 0.70,
+    floor: float = 0.1,
+    ceiling: float = 0.9,
+) -> AuditProofCertificate:
+    from .trust import update_trust, AuditDecision
+    exec_proof = generate_execution_proof(agent_code, test_suite, alleged_failing_test)
+    if exec_proof.is_proven:
+        support, harm, counter_valid = np.array([3.0, 0.0]), np.array([0.0, 3.0]), False
+    else:
+        support, harm, counter_valid = np.array([0.0, 3.0]), np.array([3.0, 0.0]), True
+    scores = np.array([prior_agent_trust, 1.0 - prior_agent_trust])
+    w = update_trust(scores, support, harm, n_claims=np.ones(2), floor=floor, ceiling=ceiling)
+    agent_w, auditor_w = float(w[0]), float(w[1])
+    logits = np.log(np.maximum(scores, 1e-12)) + 0.8 * support - 0.6 * harm
+    logits -= logits.max()
+    p = np.exp(logits) / np.exp(logits).sum()
+    kkt_cert = verify_kkt_optimality(p, w, floor=floor, ceiling=ceiling)
+    odds_ratio = agent_w / max(auditor_w, 1e-12)
+    adjudication = AuditDecision.ACCEPT_VALID if counter_valid else (
+        AuditDecision.REJECT_HOSTILE if agent_w >= rejection_threshold else AuditDecision.AMBIGUOUS_PARK
+    )
+    return AuditProofCertificate(
+        adjudication=adjudication, agent_trust=agent_w, auditor_trust=auditor_w,
+        posterior_odds_ratio=odds_ratio, kkt_proof=kkt_cert, execution_proof=exec_proof,
+        formal_verdict_statement=f"Adjudication: {adjudication}",
+    )
