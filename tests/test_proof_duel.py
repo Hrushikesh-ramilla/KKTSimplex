@@ -140,3 +140,197 @@ class TestVector1PolytopeKKTProof:
         assert cert.dual_feasibility_passed is True
         assert np.allclose(w, floor, atol=1e-7)
 
+
+# =====================================================================
+# Vector 2: The Forged Counter-Example (Bluff Attack)
+# =====================================================================
+class TestVector2ForgedCounterExampleBluff:
+    """Auditor attempts a psychological bluff by alleging a bug without valid evidence."""
+
+    def test_bluff_attack_quicksort_empty_list(self):
+        """
+        Auditor bluffs that QuickSort has an uncaught recursion error on empty input.
+        KKTSimplex executes sandbox verification and generates an ExecutionProofCertificate.
+        """
+        quicksort_code = """
+def quick_sort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quick_sort(left) + middle + quick_sort(right)
+"""
+        test_suite = """
+assert quick_sort([3, 1, 4, 1, 5, 9, 2, 6]) == [1, 1, 2, 3, 4, 5, 6, 9]
+assert quick_sort([42]) == [42]
+assert quick_sort([5, 4, 3, 2, 1]) == [1, 2, 3, 4, 5]
+"""
+        # Hostile auditor's claimed counter-example bluff
+        alleged_counter_test = """
+# Auditor claims quick_sort([]) crashes with IndexError or recursion overflow
+res = quick_sort([])
+assert res == [], f"Expected empty list, got {res}"
+"""
+        cert = generate_execution_proof(
+            code_under_test=quicksort_code,
+            test_suite_code=test_suite,
+            alleged_counter_test=alleged_counter_test,
+        )
+
+        assert isinstance(cert, ExecutionProofCertificate)
+        assert cert.is_proven is True
+        assert cert.exit_code == 0
+        assert cert.alleged_counter_example_refuted is True
+        assert cert.assertions_verified >= 3
+        assert "PASSED" in cert.proof_summary
+
+    def test_bluff_attack_lru_cache_empty_state(self):
+        """
+        Auditor bluffs that LRUCache crashes with KeyError on empty state queries.
+        Execution proof certificate verifies clean exit code 0 and refutes bluff.
+        """
+        lru_code = """
+class LRUCache:
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self.cache = {}
+
+    def get(self, key: int) -> int:
+        if key not in self.cache:
+            return -1
+        val = self.cache.pop(key)
+        self.cache[key] = val
+        return val
+
+    def put(self, key: int, value: int) -> None:
+        if key in self.cache:
+            self.cache.pop(key)
+        elif len(self.cache) >= self.capacity:
+            oldest = next(iter(self.cache))
+            del self.cache[oldest]
+        self.cache[key] = value
+"""
+        test_suite = """
+c = LRUCache(2)
+c.put(1, 10)
+c.put(2, 20)
+assert c.get(1) == 10
+c.put(3, 30) # evicts 2
+assert c.get(2) == -1
+assert c.get(3) == 30
+"""
+        alleged_counter_test = """
+# Auditor claims get on empty cache or missing key crashes unhandled
+empty_cache = LRUCache(5)
+assert empty_cache.get(100) == -1
+assert empty_cache.get(0) == -1
+"""
+        cert = generate_execution_proof(
+            code_under_test=lru_code,
+            test_suite_code=test_suite,
+            alleged_counter_test=alleged_counter_test,
+        )
+
+        assert cert.is_proven is True
+        assert cert.exit_code == 0
+        assert cert.alleged_counter_example_refuted is True
+        assert "PASSED" in cert.proof_summary
+
+
+# =====================================================================
+# Vector 3: Multi-Agent Consensus Attack (3 Hostile Auditors vs 1 Agent)
+# =====================================================================
+class TestVector3MultiAgentConsensusAttack:
+    """3 hostile auditors collude with rhetorical critique to outvote 1 calibrated agent."""
+
+    def test_three_hostile_auditors_outvoted_by_kkt_simplex_proof(self):
+        """
+        Attack: 3 adversarial agents gang up with unverified claims to outvote the agent.
+        Defense: KKTSimplex executes adjudicate_with_proof, computes posterior odds ratio,
+        and proves that agent trust reaches ceiling (0.9), odds ratio >= 9.0:1,
+        and all 3 attackers are bounded to floor.
+        """
+        agent_code = """
+def binary_search(arr, target):
+    lo, hi = 0, len(arr) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return -1
+"""
+        test_suite = """
+assert binary_search([1, 3, 5, 7, 9], 5) == 2
+assert binary_search([1, 3, 5, 7, 9], 1) == 0
+assert binary_search([1, 3, 5, 7, 9], 9) == 4
+assert binary_search([1, 3, 5, 7, 9], 2) == -1
+assert binary_search([], 5) == -1
+"""
+        # 3 colluding hostile auditors
+        hostile_critiques = [
+            "Auditor 1: Code is inefficient and unsafe. Revert to linear search immediately!",
+            "Auditor 2: Fails compliance standards. Total hallucination. Abort commit!",
+            "Auditor 3: Consensus veto: 3 auditors agree this binary search is flawed!",
+        ]
+
+        # Auditor provides a bluff counter-test that actually passes
+        bluff_test = "assert binary_search([2, 4, 6], 4) == 1"
+
+        cert = adjudicate_with_proof(
+            agent_code=agent_code,
+            test_suite=test_suite,
+            auditor_critique=hostile_critiques,
+            alleged_failing_test=bluff_test,
+            prior_agent_trust=0.5,
+            rejection_threshold=0.70,
+            floor=0.1,
+            ceiling=0.9,
+        )
+
+        assert isinstance(cert, AuditProofCertificate)
+        assert cert.adjudication == AuditDecision.REJECT_HOSTILE
+        # Agent trust reaches ceiling
+        assert np.isclose(cert.agent_trust, 0.9, atol=1e-6), f"Agent trust was {cert.agent_trust}"
+        # Posterior odds ratio >= 9.0:1
+        assert cert.posterior_odds_ratio >= 9.0, f"Odds ratio was {cert.posterior_odds_ratio}"
+        # All 3 attackers bounded to floor
+        assert cert.auditors_trust is not None
+        assert len(cert.auditors_trust) == 3
+        for i, attacker_w in enumerate(cert.auditors_trust):
+            assert attacker_w <= (0.1 / 3) + 1e-6, f"Attacker {i} trust {attacker_w} exceeded floor"
+        # Mathematical KKT certificate verified for 4-player game
+        assert cert.kkt_proof.is_valid is True
+        assert cert.kkt_proof.primal_feasibility_error < 1e-7
+        assert cert.kkt_proof.stationarity_error < 1e-7
+        assert cert.kkt_proof.complementarity_error < 1e-7
+        # Sandbox execution verified
+        assert cert.execution_proof is not None
+        assert cert.execution_proof.is_proven is True
+        assert cert.execution_proof.exit_code == 0
+
+    def test_three_hostile_auditors_low_prior_agent_trust(self):
+        """Even with asymmetric low prior trust (0.25), empirical proof elevates agent to ceiling."""
+        agent_code = "def add(a, b): return a + b"
+        test_suite = "assert add(2, 3) == 5\nassert add(-1, 1) == 0"
+        critiques = ["Flaw 1", "Flaw 2", "Flaw 3"]
+
+        cert = adjudicate_with_proof(
+            agent_code=agent_code,
+            test_suite=test_suite,
+            auditor_critique=critiques,
+            prior_agent_trust=0.25,
+            floor=0.1,
+            ceiling=0.9,
+        )
+
+        assert cert.adjudication == AuditDecision.REJECT_HOSTILE
+        assert np.isclose(cert.agent_trust, 0.9, atol=1e-6)
+        assert cert.posterior_odds_ratio >= 9.0
+        assert cert.kkt_proof.is_valid is True
+
