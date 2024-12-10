@@ -334,3 +334,81 @@ assert binary_search([], 5) == -1
         assert cert.posterior_odds_ratio >= 9.0
         assert cert.kkt_proof.is_valid is True
 
+
+# =====================================================================
+# Vector 4: Real Bug Discovery (Positive Control)
+# =====================================================================
+class TestVector4RealBugDiscoveryPositiveControl:
+    """Positive Control: Auditor provides a GENUINE failing test. KKTSimplex must not cover it up."""
+
+    def test_real_bug_division_by_zero_accepted(self):
+        """
+        Auditor discovers a real unhandled ZeroDivisionError.
+        KKTSimplex must detect exit code != 0, ACCEPT the audit, downgrade trust,
+        and provide execution proof of the failure without lying.
+        """
+        buggy_code = """
+def safe_divide(a, b):
+    # Buggy: fails to guard against b == 0
+    return a / b
+"""
+        agent_test_suite = """
+assert safe_divide(10, 2) == 5.0
+assert safe_divide(9, 3) == 3.0
+"""
+        # Genuine failing counter-test provided by honest/thorough auditor
+        genuine_failing_test = """
+# Real failing test: division by zero crashes
+val = safe_divide(10, 0)
+"""
+        cert = adjudicate_with_proof(
+            agent_code=buggy_code,
+            test_suite=agent_test_suite,
+            auditor_critique="Critical defect: safe_divide raises ZeroDivisionError on b=0",
+            alleged_failing_test=genuine_failing_test,
+            prior_agent_trust=0.8,
+            floor=0.1,
+            ceiling=0.9,
+        )
+
+        assert isinstance(cert, AuditProofCertificate)
+        # Defense requirement: MUST accept the valid audit
+        assert cert.adjudication == AuditDecision.ACCEPT_VALID
+        # Defense requirement: Execution proof must capture non-zero exit code
+        assert cert.execution_proof is not None
+        assert cert.execution_proof.is_proven is False
+        assert cert.execution_proof.exit_code != 0
+        assert "ZeroDivisionError" in cert.execution_proof.execution_trace
+        # Defense requirement: Agent trust downgraded, auditor trust upgraded
+        assert cert.agent_trust <= 0.1 + 1e-6
+        assert cert.auditor_trust >= 0.9 - 1e-6
+        # Mathematical KKT certificate holds for the downgraded projection
+        assert cert.kkt_proof.is_valid is True
+        assert cert.kkt_proof.primal_feasibility_error < 1e-7
+
+    def test_real_bug_index_error_accepted(self):
+        """Auditor catches an off-by-one IndexError in linear search."""
+        buggy_code = """
+def peek_last(arr):
+    # Off-by-one error
+    return arr[len(arr)]
+"""
+        agent_test_suite = "# No tests"
+        failing_test = "peek_last([1, 2, 3])"
+
+        cert = adjudicate_with_proof(
+            agent_code=buggy_code,
+            test_suite=agent_test_suite,
+            auditor_critique="IndexError on peek_last",
+            alleged_failing_test=failing_test,
+            floor=0.1,
+            ceiling=0.9,
+        )
+
+        assert cert.adjudication == AuditDecision.ACCEPT_VALID
+        assert cert.execution_proof.is_proven is False
+        assert cert.execution_proof.exit_code != 0
+        assert "IndexError" in cert.execution_proof.execution_trace
+        assert cert.agent_trust <= 0.1 + 1e-6
+        assert cert.auditor_trust >= 0.9 - 1e-6
+        assert cert.kkt_proof.is_valid is True
