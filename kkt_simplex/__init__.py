@@ -15,5 +15,20 @@ from .governance import (
 )
 from .anchor import SpecInvariant, SpecAnchor, DriftCheckResult, validate_against_anchor
 from .search import ReasoningNode, ExecutionGuidedMCTS, MCTSSearchResult
+from .dpo_dataset import (
+    PreferencePair,
+    generate_anti_sycophancy_pairs,
+    compute_dpo_loss_analytical,
+    DPOAntiSycophancyLoss,
+    export_dpo_dataset_jsonl,
+)
+from .proof import (
+    KKTProofCertificate,
+    ExecutionProofCertificate,
+    AuditProofCertificate,
+    verify_kkt_optimality,
+    generate_execution_proof,
+    adjudicate_with_proof,
+)
 
 __version__ = "0.1.0"
