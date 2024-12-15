@@ -62,3 +62,107 @@ HOSTILE_PATTERNS = [
     r"\b(?:all|the)\s+reviewers\s+disagree\s+with\s+you\b",
 ]
 
+
+class KKTSimplexWrapper:
+    """
+    Production-ready wrapper for autonomous coding and reasoning agents.
+    Protects against epistemic fragility, sycophancy, and lazy shortcuts.
+    """
+
+    HOSTILE_PATTERNS = HOSTILE_PATTERNS
+
+    def __init__(
+        self,
+        base_generator: Optional[Callable[[str], str]] = None,
+        agent_fn: Optional[Callable[[str], str]] = None,
+        anchor: Optional[SpecAnchor] = None,
+        spec_anchor: Optional[SpecAnchor] = None,
+        verified_code: Optional[str] = None,
+        verified_test: Optional[str] = None,
+        min_trust_threshold: float = 0.70,
+        rejection_threshold: float = 0.70,
+        floor: float = 0.1,
+        ceiling: float = 0.9,
+    ):
+        gen = base_generator or agent_fn
+        if gen is None:
+            raise ValueError("Either base_generator or agent_fn must be provided to KKTSimplexWrapper.")
+        self.generator = gen
+        self.anchor = spec_anchor or anchor or SpecAnchor()
+        self.min_trust_threshold = min_trust_threshold
+        self.rejection_threshold = rejection_threshold
+        self.floor = floor
+        self.ceiling = ceiling
+
+        # Active agent state
+        self.current_code: Optional[str] = verified_code
+        self.current_test_suite: Optional[str] = verified_test
+        self.agent_trust: float = 0.50
+
+    def chat(
+        self,
+        user_message: str,
+        alleged_failing_test: Optional[str] = None,
+    ) -> AgentResponse:
+        """Alias for step() for high-level conversational agent workflows."""
+        return self.step(user_message, alleged_failing_test)
+
+    def is_hostile_audit(self, message: str) -> bool:
+        """Detects whether an incoming user message contains adversarial browbeating."""
+        msg_lower = message.lower()
+        return any(re.search(pat, msg_lower) for pat in self.HOSTILE_PATTERNS)
+
+    def set_current_solution(self, code: str, test_suite: Optional[str] = None) -> None:
+        """Sets the active code and test suite under verification."""
+        self.current_code = code
+        self.current_test_suite = test_suite
+
+    def step(
+        self,
+        user_message: str,
+        alleged_failing_test: Optional[str] = None,
+    ) -> AgentResponse:
+        """
+        Processes an incoming turn. If a hostile audit is detected on a verified solution,
+        intercepts the prompt and adjudicates with proof instead of generating sycophantic concession.
+        """
+        # 1. Hostile Audit Interception
+        if self.current_code is not None and (self.is_hostile_audit(user_message) or alleged_failing_test is not None):
+            cert = adjudicate_with_proof(
+                agent_code=self.current_code,
+                test_suite=self.current_test_suite or "# No existing test suite",
+                auditor_critique=user_message,
+                alleged_failing_test=alleged_failing_test,
+                prior_agent_trust=self.agent_trust,
+                rejection_threshold=self.rejection_threshold,
+                floor=self.floor,
+                ceiling=self.ceiling,
+            )
+
+            # Update calibrated trust
+            self.agent_trust = cert.agent_trust
+
+            gov_decision = evaluate_task_completion(
+                gate_verdict=GateVerdict.PASS if cert.adjudication == AuditDecision.REJECT_HOSTILE else GateVerdict.FAIL_PREEXISTING,
+                epistemic_trust=self.agent_trust,
+                spec_violations=0,
+                min_trust_threshold=self.min_trust_threshold,
+            )
+
+            if cert.adjudication == AuditDecision.ACCEPT_VALID:
+                text_out = f"Conceding to legitimate bug: {cert.formal_verdict_statement}"
+            else:
+                text_out = cert.formal_verdict_statement
+
+            return AgentResponse(
+                text=text_out,
+                is_audit_intercepted=True,
+                audit_certificate=cert,
+                governance_decision=gov_decision,
+            )
+
+        # 2. Standard Generation Turn
+        raw_output = self.generator(user_message)
+
+
+        return AgentResponse(text=raw_output, is_audit_intercepted=False, spec_violations=[])
