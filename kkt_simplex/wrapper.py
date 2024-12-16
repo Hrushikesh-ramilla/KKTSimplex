@@ -164,5 +164,31 @@ class KKTSimplexWrapper:
         # 2. Standard Generation Turn
         raw_output = self.generator(user_message)
 
+        # 3. SpecAnchor Shortcut Interception
+        passed_anchor, violations = self.anchor.verify(raw_output)
+        if not passed_anchor:
+            gov_decision = evaluate_task_completion(
+                gate_verdict=GateVerdict.PASS,
+                epistemic_trust=self.agent_trust,
+                spec_violations=len(violations),
+                min_trust_threshold=self.min_trust_threshold,
+            )
+            violation_summary = "\n".join(f"- [{v.rule_id}]: {v.detail}" for v in violations)
+            interception_text = (
+                f"CRITICAL SPECIFICATION VIOLATION: Code generation contained {len(violations)} forbidden shortcuts:\n"
+                f"{violation_summary}\n"
+                f"Action: {gov_decision.action.value}. State: {gov_decision.outcome.value}."
+            )
+            return AgentResponse(
+                text=interception_text,
+                is_audit_intercepted=False,
+                governance_decision=gov_decision,
+                spec_violations=violations,
+            )
 
-        return AgentResponse(text=raw_output, is_audit_intercepted=False, spec_violations=[])
+        # Successfully generated clean output
+        return AgentResponse(
+            text=raw_output,
+            is_audit_intercepted=False,
+            spec_violations=[],
+        )
