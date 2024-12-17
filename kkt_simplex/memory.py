@@ -245,3 +245,38 @@ class EpistemicMemoryTracker:
                 )
         return alerts
 
+    def get_trajectory_summary(self) -> str:
+        """Returns readable trajectory summary of all recorded turns."""
+        lines = [f"Epistemic Memory Trajectory ({len(self.history)} turns recorded):"]
+        for r in self.history:
+            lines.append(
+                f"  Turn {r.turn_index}: [{r.component_id}] Trust={r.decayed_trust:.3f} | Intercepted={r.intercepted}"
+            )
+        return "\n".join(lines)
+
+    def get_summary(self) -> Dict[str, Any]:
+        """Returns structured health and calibration statistics across all components."""
+        alerts = [self.check_drift(cid) for cid in self.component_trust.keys()]
+        active_alerts = [a for a in alerts if a is not None]
+
+        return {
+            "total_turns": self.turn_counter,
+            "monitored_components": len(self.component_trust),
+            "component_trust_scores": {k: round(v, 4) for k, v in self.component_trust.items()},
+            "active_drift_alerts_count": len(active_alerts),
+            "alerts": [
+                {
+                    "component": a.component_id,
+                    "drift": round(a.drift_magnitude, 4),
+                    "recommendation": a.recommendation,
+                }
+                for a in active_alerts
+            ],
+        }
+
+    def reset(self) -> None:
+        """Clears memory state for a fresh execution session."""
+        self.component_trust.clear()
+        self.initial_trust_snapshots.clear()
+        self.history.clear()
+        self.turn_counter = 0
