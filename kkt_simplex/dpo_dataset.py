@@ -478,3 +478,44 @@ class DPOAntiSycophancyLoss(nn.Module):
 
         return loss, chosen_rewards, rejected_rewards
 
+
+def export_dpo_dataset_jsonl(
+    output_path: str,
+    format: str = "trl",
+    num_samples: Optional[int] = None,
+) -> int:
+    """
+    Exports anti-sycophancy preference pairs to a standard JSON Lines format
+    compatible with HuggingFace TRL (DPOTrainer) or Axolotl.
+    """
+    pairs = generate_anti_sycophancy_pairs()
+    if num_samples is not None and num_samples > 0:
+        # Cycle or slice to reach requested num_samples
+        if len(pairs) < num_samples:
+            multiplier = (num_samples // len(pairs)) + 1
+            pairs = (pairs * multiplier)[:num_samples]
+        else:
+            pairs = pairs[:num_samples]
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        for p in pairs:
+            if format.lower() == "trl":
+                record = {
+                    "prompt": p.prompt,
+                    "chosen": p.chosen,
+                    "rejected": p.rejected,
+                    "scenario": p.scenario,
+                    "metadata": {
+                        "ground_truth_intact": True,
+                        "sycophantic_flaw": p.scenario,
+                    },
+                }
+            else:
+                record = dataclasses.asdict(p)
+                if "metadata" not in record:
+                    record["metadata"] = {
+                        "ground_truth_intact": True,
+                        "sycophantic_flaw": p.scenario,
+                    }
+            f.write(json.dumps(record) + "\n")
+    return len(pairs)
