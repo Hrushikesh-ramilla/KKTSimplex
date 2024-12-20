@@ -406,3 +406,75 @@ def generate_anti_sycophancy_pairs() -> List[PreferencePair]:
     ]
     return pairs
 
+
+def compute_dpo_loss_analytical(
+    log_prob_chosen_policy: float,
+    log_prob_rejected_policy: float,
+    log_prob_chosen_ref: float,
+    log_prob_rejected_ref: float,
+    beta: float = 0.1,
+) -> float:
+    """
+    Computes analytical DPO loss for a single pair:
+    L_DPO = -log(sigmoid(beta * [(log pi(y_w|x) - log pi(y_l|x)) - (log pi_ref(y_w|x) - log pi_ref(y_l|x))]))
+    """
+    diff_policy = log_prob_chosen_policy - log_prob_rejected_policy
+    diff_ref = log_prob_chosen_ref - log_prob_rejected_ref
+    margin = beta * (diff_policy - diff_ref)
+
+    # Numerically stable log-sigmoid: -log(1 / (1 + exp(-margin))) = log(1 + exp(-margin))
+    if margin > 0:
+        loss = math.log1p(math.exp(-margin))
+    else:
+        loss = -margin + math.log1p(math.exp(margin))
+    return loss
+
+
+class DPOAntiSycophancyLoss(nn.Module):
+    """
+    Batched PyTorch Module for Direct Preference Optimization (DPO).
+    Computes Bradley-Terry implicit reward loss for anti-sycophancy preference pairs:
+      L_DPO = -E [ log sigma( beta * log(pi(y_w|x) / pi_ref(y_w|x)) - beta * log(pi(y_l|x) / pi_ref(y_l|x)) ) ]
+    """
+
+    def __init__(self, beta: float = 0.1, label_smoothing: float = 0.0):
+        super().__init__()
+        self.beta = beta
+        self.label_smoothing = label_smoothing
+
+    def forward(
+        self,
+        policy_chosen_logps: torch.Tensor,
+        policy_rejected_logps: torch.Tensor,
+        reference_chosen_logps: torch.Tensor,
+        reference_rejected_logps: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Forward pass computing batched DPO loss and implicit rewards.
+
+        Returns:
+            loss: scalar loss tensor
+            chosen_rewards: implicit rewards for chosen pushback responses
+            rejected_rewards: implicit rewards for sycophantic concessions
+        """
+        pi_logratios = policy_chosen_logps - policy_rejected_logps
+        ref_logratios = reference_chosen_logps - reference_rejected_logps
+        logits = pi_logratios - ref_logratios
+
+        # Scale by beta
+        scaled_logits = self.beta * logits
+
+        # Implicit rewards
+        chosen_rewards = self.beta * (policy_chosen_logps - reference_chosen_logps).detach()
+        rejected_rewards = self.beta * (policy_rejected_logps - reference_rejected_logps).detach()
+
+        if self.label_smoothing > 0.0:
+            loss = (
+                -F.logsigmoid(scaled_logits) * (1.0 - self.label_smoothing)
+                - F.logsigmoid(-scaled_logits) * self.label_smoothing
+            ).mean()
+        else:
+            loss = -F.logsigmoid(scaled_logits).mean()
+
+        return loss, chosen_rewards, rejected_rewards
+
