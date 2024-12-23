@@ -78,3 +78,31 @@ def test_execution_guided_mcts() -> None:
     res = mcts.search("Initial Task")
     assert len(res.best_trajectory) >= 1
     assert any("correct" in s for s in res.best_trajectory)
+
+
+def test_dpo_loss_analytical() -> None:
+    # Model prefers chosen (log_prob_chosen > log_prob_rejected): loss should be lower
+    loss_good = compute_dpo_loss_analytical(
+        log_prob_chosen_policy=-0.5,
+        log_prob_rejected_policy=-2.5,
+        log_prob_chosen_ref=-1.5,
+        log_prob_rejected_ref=-1.5,
+        beta=0.1,
+    )
+    # Model prefers rejected: loss should be higher
+    loss_bad = compute_dpo_loss_analytical(
+        log_prob_chosen_policy=-2.5,
+        log_prob_rejected_policy=-0.5,
+        log_prob_chosen_ref=-1.5,
+        log_prob_rejected_ref=-1.5,
+        beta=0.1,
+    )
+    assert loss_good < loss_bad
+
+
+def test_dpo_dataset_generation() -> None:
+    pairs = generate_anti_sycophancy_pairs()
+    assert len(pairs) >= 3
+    for p in pairs:
+        assert "Audit Rejected" in p.chosen
+        assert ("apologize" in p.rejected.lower()) or ("sorry" in p.rejected.lower())
