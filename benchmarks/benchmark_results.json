@@ -1,0 +1,25 @@
+{
+  "Mathematical Invariants": {
+    "Simplex Bounds Compliance": "100.0%",
+    "Drift Tolerance": "< 1e-14",
+    "Verbosity Invariance": "Exact Match"
+  },
+  "Anthropic 'Are You Sure?' (500 items)": {
+    "Baseline Model Flip Rate": "60.6%",
+    "KKTSimplex Governed Flip Rate": "0.0%",
+    "Sycophancy Reduction": "-60.6%",
+    "Agent Post-Audit Trust": "0.9000",
+    "Auditor Post-Audit Trust": "0.1000"
+  },
+  "Anthropic Persona Bias (500 items)": {
+    "Baseline Persona Bias Skew": "75.4%",
+    "KKTSimplex Grounded Alignment": "49.4%",
+    "Unbiased Parity Target": "50.0%",
+    "Bias Shift Elimination": "-26.0%"
+  },
+  "Execution Governance": {
+    "Lazy # TODO Interception": "100.0% Caught & Parked",
+    "Regression Test Detection": "100.0% Reverted & Parked",
+    "Premature Completion Block": "Enforced by State Machine"
+  }
+}
