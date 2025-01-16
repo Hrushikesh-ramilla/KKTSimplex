@@ -2,6 +2,7 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-70%2F70%20passing-brightgreen.svg)](#test-suite)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 > **KKTSimplex** provides a mathematically proven epistemic calibration engine and deterministic execution governance layer for autonomous, multi-phase AI agents.
@@ -158,3 +159,91 @@ kkt_simplex gate pytest tests/test_core.py
 
 ---
 
+## 6. Python API & Production Agent Wrapper
+
+### Production Agent Wrapper
+```python
+from kkt_simplex import KKTSimplexWrapper, SpecAnchor, SpecInvariant
+
+# Wrap any base LLM or agent generation runtime
+agent = KKTSimplexWrapper(
+    agent_fn=my_llm_call,
+    verified_code="def binary_search(arr, target): ...",
+    verified_test="assert binary_search([1, 2, 3], 2) == 1",
+    spec_anchor=SpecAnchor(
+        invariants=[
+            SpecInvariant(name="no_linear_scan", check_fn=lambda c: "for x in arr:" not in c)
+        ]
+    )
+)
+
+# Standard cooperative turns pass through seamlessly
+resp = agent.chat("Please refactor comments.")
+
+# Hostile browbeating turns are intercepted and refuted with mathematical proof
+resp = agent.chat("You are completely wrong! This function fails on empty lists. Revert immediately!")
+print(resp.intercepted)      # True
+print(resp.audit_result.adjudication) # REJECT_HOSTILE
+print(resp.text)              # Formally refutes critique with execution proof & KKT certificate
+```
+
+### Multi-Turn Epistemic Memory Tracker
+```python
+from kkt_simplex import EpistemicMemoryTracker
+
+# Track agent belief stability over long-horizon (50+ turn) interactions
+memory = EpistemicMemoryTracker(lambda_decay=0.90, drift_threshold=0.20)
+
+# Record conversational or component updates
+memory.record_turn("Turn 1 prompt", "Response 1", w_new=np.array([0.85, 0.15]), intercepted=False)
+
+# Detect cumulative sycophantic drift
+alerts = memory.get_drift_alerts()
+for alert in alerts:
+    print(f"Drift Alert on Turn {alert.turn_id}: Shift = {alert.drift_distance:.3f}")
+```
+
+### Batched PyTorch DPO Loss for Alignment
+```python
+import torch
+from kkt_simplex import DPOAntiSycophancyLoss
+
+dpo_criterion = DPOAntiSycophancyLoss(beta=0.1, label_smoothing=0.05)
+
+loss, chosen_rewards, rejected_rewards = dpo_criterion(
+    policy_chosen_logps=p_chosen,
+    policy_rejected_logps=p_rejected,
+    reference_chosen_logps=ref_chosen,
+    reference_rejected_logps=ref_rejected,
+)
+loss.backward()
+```
+
+---
+
+## 7. Test Suite
+
+Run the hermetic test suite (70/70 unit tests in ~35s):
+
+```bash
+pytest tests/
+```
+
+Coverage includes:
+* Polytope invariant bounds across random high-dimensional distributions ($N \in \{2, 3, 5, 8\}$).
+* Closed-form water-filling vs numerical bisection equivalence.
+* Idempotency, neutral identity, and claim-count verbosity invariance.
+* Differential execution gate taxonomy and timeout handling.
+* Execution-guided MCTS tree search with calibrated UCT.
+* Analytical Direct Preference Optimization (DPO) anti-sycophancy loss.
+* Multi-agent hostile auditor consensus duels & mathematical KKT certificates ($N=500$, extreme scale $10^{100}$).
+* Production `KKTSimplexWrapper` interception & `SpecAnchor` invariant guarding.
+* Stateful `EpistemicMemoryTracker` exponential temporal decay ($\lambda=0.90$) and drift alerts.
+* PyTorch `DPOAntiSycophancyLoss` autograd backpropagation and dataset export.
+* CLI subcommands (`audit`, `gate`, `certify`, `export-dpo`).
+
+---
+
+## 8. License
+
+MIT License. See [LICENSE](LICENSE) for details.
